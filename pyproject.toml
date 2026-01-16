@@ -1,0 +1,23 @@
+[project]
+name = "obsidian-search"
+version = "0.1.0"
+description = "A CLI tool that indexes an Obsidian vault into SQLite with sqlite-vec for semantic search using Ollama embeddings"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ollama",
+    "sqlite-vec",
+    "click",
+    "pyyaml",
+    "rich",
+]
+
+[project.scripts]
+obsidian-search = "obsidian_search.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/obsidian_search"]
