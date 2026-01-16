@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from .database import get_db_path, get_note_count, init_db, search_similar
+from .database import get_chunk_count, get_db_path, get_note_count, init_db, search_similar
 from .embeddings import ensure_model_available, get_embedding
 from .indexer import index_vault
 
@@ -41,7 +41,7 @@ def index(vault_path: Path, update: bool):
         if not ensure_model_available():
             console.print(
                 "[red]Error:[/red] Could not load embedding model. "
-                "Make sure Ollama is running and nomic-embed-text is available."
+                "Make sure Ollama is running and bge-m3 is available."
             )
             raise SystemExit(1)
 
@@ -110,19 +110,25 @@ def search(query: str, vault: Path | None, limit: int):
         console.print("[yellow]No results found[/yellow]")
         return
 
-    # Display results
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("#", style="dim", width=3)
-    table.add_column("Score", width=8)
-    table.add_column("Title", min_width=20)
-    table.add_column("Path", style="dim")
+    # Display results - deduplicate by note path, keep best score
+    seen_paths: dict[str, tuple] = {}
+    for result in results:
+        note_id, path, title, note_content, chunk_content, distance = result
+        if path not in seen_paths or distance < seen_paths[path][5]:
+            seen_paths[path] = result
 
-    for i, (note_id, path, title, content, distance) in enumerate(results, 1):
-        # Convert distance to similarity score (lower distance = higher similarity)
-        score = f"{1 / (1 + distance):.2f}"
-        table.add_row(str(i), score, title or "(untitled)", path)
+    deduplicated = sorted(seen_paths.values(), key=lambda x: x[5])
 
-    console.print(table)
+    for i, (note_id, path, title, note_content, chunk_content, distance) in enumerate(deduplicated, 1):
+        score = 1 / (1 + distance)
+        # Truncate chunk preview
+        preview = chunk_content.replace("\n", " ")[:200]
+        if len(chunk_content) > 200:
+            preview += "..."
+
+        console.print(f"\n[bold cyan]{i}.[/bold cyan] [bold]{title or '(untitled)'}[/bold] [dim]({score:.2f})[/dim]")
+        console.print(f"   [dim]{path}[/dim]")
+        console.print(f"   {preview}")
 
 
 @cli.command()
@@ -145,10 +151,24 @@ def status(vault: Path | None):
         return
 
     conn = init_db(db_path)
-    count = get_note_count(conn)
+    note_count = get_note_count(conn)
+    chunk_count = get_chunk_count(conn)
     conn.close()
 
-    console.print(f"[green]Status:[/green] Indexed ({count} notes)")
+    console.print(f"[green]Status:[/green] Indexed ({note_count} notes, {chunk_count} chunks)")
+
+
+@cli.command()
+@click.argument("vault_path", type=click.Path(exists=True, file_okay=False, path_type=Path), required=False)
+def mcp(vault_path: Path | None):
+    """Start the MCP server for integration with AI assistants.
+
+    Optionally specify a VAULT_PATH to use as the default vault for all operations.
+    """
+    import asyncio
+    from .mcp_server import run_server
+    resolved_path = vault_path.resolve() if vault_path else None
+    asyncio.run(run_server(resolved_path))
 
 
 if __name__ == "__main__":

@@ -2,8 +2,8 @@
 
 import ollama
 
-DEFAULT_MODEL = "nomic-embed-text"
-EMBEDDING_DIM = 768
+DEFAULT_MODEL = "bge-m3"
+EMBEDDING_DIM = 1024
 
 
 def get_embedding(text: str, model: str = DEFAULT_MODEL) -> list[float]:

@@ -10,7 +10,7 @@ from .database import (
     init_db,
     upsert_note,
 )
-from .embeddings import get_embedding
+from .embeddings import get_embeddings_batch
 from .parser import parse_note
 
 
@@ -107,13 +107,13 @@ def index_vault(
             note = parse_note(file_path)
             mtime = file_path.stat().st_mtime
 
-            # Skip empty notes
-            if not note.content.strip():
+            # Skip notes with no chunks
+            if not note.chunks:
                 skipped += 1
                 continue
 
-            # Generate embedding
-            embedding = get_embedding(note.content)
+            # Generate embeddings for all chunks
+            embeddings = get_embeddings_batch(note.chunks)
 
             # Store in database
             upsert_note(
@@ -122,7 +122,8 @@ def index_vault(
                 title=note.title,
                 content=note.content,
                 mtime=mtime,
-                embedding=embedding,
+                chunks=note.chunks,
+                embeddings=embeddings,
             )
             indexed += 1
 

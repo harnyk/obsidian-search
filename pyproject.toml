@@ -1,6 +1,6 @@
 [project]
 name = "obsidian-search"
-version = "0.1.0"
+version = "0.5.0"
 description = "A CLI tool that indexes an Obsidian vault into SQLite with sqlite-vec for semantic search using Ollama embeddings"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,6 +10,7 @@ dependencies = [
     "click",
     "pyyaml",
     "rich",
+    "mcp",
 ]
 
 [project.scripts]

@@ -7,6 +7,8 @@ from typing import Optional
 
 import sqlite_vec
 
+from .embeddings import EMBEDDING_DIM
+
 
 def serialize_vector(vector: list[float]) -> bytes:
     """Serialize a vector to bytes for sqlite-vec."""
@@ -36,19 +38,29 @@ def init_db(db_path: Path) -> sqlite3.Connection:
             mtime REAL
         );
 
+        CREATE TABLE IF NOT EXISTS chunks (
+            id INTEGER PRIMARY KEY,
+            note_id INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+            UNIQUE(note_id, chunk_index)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_notes_path ON notes(path);
         CREATE INDEX IF NOT EXISTS idx_notes_mtime ON notes(mtime);
+        CREATE INDEX IF NOT EXISTS idx_chunks_note_id ON chunks(note_id);
     """)
 
-    # Check if embeddings virtual table exists
+    # Check if embeddings virtual table exists and has correct dimensions
     cursor = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='embeddings'"
     )
     if cursor.fetchone() is None:
-        conn.execute("""
+        conn.execute(f"""
             CREATE VIRTUAL TABLE embeddings USING vec0(
-                note_id INTEGER PRIMARY KEY,
-                vector FLOAT[768]
+                chunk_id INTEGER PRIMARY KEY,
+                vector FLOAT[{EMBEDDING_DIM}]
             )
         """)
 
@@ -65,15 +77,30 @@ def get_note_by_path(conn: sqlite3.Connection, path: str) -> Optional[tuple]:
     return cursor.fetchone()
 
 
+def delete_note_chunks(conn: sqlite3.Connection, note_id: int) -> None:
+    """Delete all chunks and their embeddings for a note."""
+    # Get chunk IDs first
+    cursor = conn.execute("SELECT id FROM chunks WHERE note_id = ?", (note_id,))
+    chunk_ids = [row[0] for row in cursor.fetchall()]
+
+    # Delete embeddings for those chunks
+    for chunk_id in chunk_ids:
+        conn.execute("DELETE FROM embeddings WHERE chunk_id = ?", (chunk_id,))
+
+    # Delete chunks
+    conn.execute("DELETE FROM chunks WHERE note_id = ?", (note_id,))
+
+
 def upsert_note(
     conn: sqlite3.Connection,
     path: str,
     title: str,
     content: str,
     mtime: float,
-    embedding: list[float]
+    chunks: list[str],
+    embeddings: list[list[float]]
 ) -> int:
-    """Insert or update a note and its embedding."""
+    """Insert or update a note and its chunk embeddings."""
     existing = get_note_by_path(conn, path)
 
     if existing:
@@ -82,8 +109,8 @@ def upsert_note(
             "UPDATE notes SET title = ?, content = ?, mtime = ? WHERE id = ?",
             (title, content, mtime, note_id)
         )
-        # Delete old embedding and insert new one
-        conn.execute("DELETE FROM embeddings WHERE note_id = ?", (note_id,))
+        # Delete old chunks and embeddings
+        delete_note_chunks(conn, note_id)
     else:
         cursor = conn.execute(
             "INSERT INTO notes (path, title, content, mtime) VALUES (?, ?, ?, ?)",
@@ -91,11 +118,17 @@ def upsert_note(
         )
         note_id = cursor.lastrowid
 
-    # Insert embedding
-    conn.execute(
-        "INSERT INTO embeddings (note_id, vector) VALUES (?, ?)",
-        (note_id, serialize_vector(embedding))
-    )
+    # Insert chunks and embeddings
+    for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
+        cursor = conn.execute(
+            "INSERT INTO chunks (note_id, chunk_index, content) VALUES (?, ?, ?)",
+            (note_id, i, chunk_content)
+        )
+        chunk_id = cursor.lastrowid
+        conn.execute(
+            "INSERT INTO embeddings (chunk_id, vector) VALUES (?, ?)",
+            (chunk_id, serialize_vector(embedding))
+        )
 
     conn.commit()
     return note_id
@@ -105,10 +138,10 @@ def search_similar(
     conn: sqlite3.Connection,
     query_embedding: list[float],
     limit: int = 10
-) -> list[tuple[int, str, str, str, float]]:
-    """Search for notes similar to the query embedding.
+) -> list[tuple[int, str, str, str, str, float]]:
+    """Search for chunks similar to the query embedding.
 
-    Returns list of (id, path, title, content, distance) tuples.
+    Returns list of (note_id, path, title, note_content, chunk_content, distance) tuples.
     """
     cursor = conn.execute(
         """
@@ -117,9 +150,11 @@ def search_similar(
             notes.path,
             notes.title,
             notes.content,
+            chunks.content,
             embeddings.distance
         FROM embeddings
-        JOIN notes ON notes.id = embeddings.note_id
+        JOIN chunks ON chunks.id = embeddings.chunk_id
+        JOIN notes ON notes.id = chunks.note_id
         WHERE vector MATCH ?
             AND k = ?
         ORDER BY distance
@@ -136,11 +171,11 @@ def get_all_notes_mtime(conn: sqlite3.Connection) -> dict[str, float]:
 
 
 def delete_note(conn: sqlite3.Connection, path: str) -> None:
-    """Delete a note and its embedding by path."""
+    """Delete a note and its chunks/embeddings by path."""
     note = get_note_by_path(conn, path)
     if note:
         note_id = note[0]
-        conn.execute("DELETE FROM embeddings WHERE note_id = ?", (note_id,))
+        delete_note_chunks(conn, note_id)
         conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         conn.commit()
 
@@ -148,4 +183,10 @@ def delete_note(conn: sqlite3.Connection, path: str) -> None:
 def get_note_count(conn: sqlite3.Connection) -> int:
     """Get the total number of indexed notes."""
     cursor = conn.execute("SELECT COUNT(*) FROM notes")
+    return cursor.fetchone()[0]
+
+
+def get_chunk_count(conn: sqlite3.Connection) -> int:
+    """Get the total number of indexed chunks."""
+    cursor = conn.execute("SELECT COUNT(*) FROM chunks")
     return cursor.fetchone()[0]
