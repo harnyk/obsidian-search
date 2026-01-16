@@ -171,5 +171,41 @@ def mcp(vault_path: Path | None):
     asyncio.run(run_server(resolved_path))
 
 
+@cli.command()
+@click.option(
+    "--vault",
+    "-v",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Path to Obsidian vault (default: current directory)",
+)
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host interface to bind")
+@click.option("--port", default=8077, show_default=True, help="Port to serve the web app")
+def web(vault: Path | None, host: str, port: int):
+    """Start a simple web app to search and view notes."""
+    from .web_app import run_web_app
+
+    vault_path = (vault or Path.cwd()).resolve()
+
+    if not (vault_path / ".obsidian").exists():
+        console.print(
+            f"[red]Error:[/red] {vault_path} does not appear to be an Obsidian vault "
+            "(missing .obsidian folder)"
+        )
+        raise SystemExit(1)
+
+    db_path = get_db_path(vault_path)
+    if not db_path.exists():
+        console.print(
+            f"[yellow]Warning:[/yellow] No index found for {vault_path}. "
+            "Run 'obsidian-search index' for search results."
+        )
+
+    console.print(f"[green]Web app:[/green] http://{host}:{port}")
+    try:
+        run_web_app(vault_path, host=host, port=port)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Web app stopped[/dim]")
+
+
 if __name__ == "__main__":
     cli()
