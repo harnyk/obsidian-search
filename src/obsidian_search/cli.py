@@ -123,7 +123,7 @@ def search(ctx: VaultContext, query: str, limit: int):
         console.print("[yellow]No results found[/yellow]")
         return
 
-    for i, result in enumerate(results, 1):
+    for i, result in enumerate(reversed(results), 1):
         obsidian_uri = build_obsidian_uri(ctx.vault_path, result.path)
         console.print(
             f"\n[bold cyan]{i}.[/bold cyan] "
