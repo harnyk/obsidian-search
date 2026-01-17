@@ -86,20 +86,40 @@
     }
 
     .result {
-      display: block;
+      display: flex;
+      align-items: stretch;
       width: 100%;
-      text-align: left;
-      padding: 0.75rem;
       margin-bottom: 0.5rem;
       background: #fff;
       border: 1px solid #eee;
       border-radius: 6px;
-      cursor: pointer;
       transition: border-color 0.15s;
     }
 
     .result:hover {
       border-color: #888;
+    }
+
+    .result-main {
+      flex: 1;
+      text-align: left;
+      padding: 0.75rem;
+      cursor: pointer;
+    }
+
+    .result-open {
+      display: flex;
+      align-items: center;
+      padding: 0 0.75rem;
+      color: #888;
+      text-decoration: none;
+      border-left: 1px solid #eee;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .result-open:hover {
+      background: #f5f5f5;
+      color: #222;
     }
 
     .result-title {
@@ -119,9 +139,17 @@
     }
 
     .note-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
       margin-bottom: 1rem;
       padding-bottom: 1rem;
       border-bottom: 1px solid #eee;
+    }
+
+    .note-header-text {
+      flex: 1;
     }
 
     .note-title {
@@ -132,6 +160,25 @@
     .note-path {
       font-size: 0.75rem;
       color: #888;
+    }
+
+    .note-open {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.375rem 0.75rem;
+      font-size: 0.75rem;
+      color: #666;
+      text-decoration: none;
+      background: #f5f5f5;
+      border-radius: 4px;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    .note-open:hover {
+      background: #eee;
+      color: #222;
     }
 
     .note-content {

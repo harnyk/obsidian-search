@@ -11,6 +11,7 @@ from .core import (
     EmbeddingModelError,
     IndexError,
     MAX_SEARCH_LIMIT,
+    build_obsidian_uri,
     ensure_embedding_model,
     get_vault_status,
     search_vault,
@@ -62,6 +63,7 @@ def create_app(vault_path: Path) -> Flask:
                     "path": r.path,
                     "score": round(r.score, 4),
                     "preview": r.preview(),
+                    "obsidian_uri": build_obsidian_uri(vault_path, r.path),
                 }
                 for r in results
             ]
@@ -88,7 +90,8 @@ def create_app(vault_path: Path) -> Flask:
         try:
             content = full_path.read_text(encoding="utf-8")
             title = full_path.stem
-            return render_template("_note.html", path=note_path, title=title, content=content, error=None)
+            obsidian_uri = build_obsidian_uri(vault_path, note_path)
+            return render_template("_note.html", path=note_path, title=title, content=content, obsidian_uri=obsidian_uri, error=None)
         except Exception as exc:
             return render_template("_note.html", error=f"Read failed: {exc}")
 

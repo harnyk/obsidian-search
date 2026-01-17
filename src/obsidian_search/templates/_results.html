@@ -2,16 +2,24 @@
 <p class="status">{{ error }}</p>
 {% elif results %}
 {% for r in results %}
-<button
-  class="result"
-  hx-post="/read"
-  hx-vals='{"path": "{{ r.path }}"}'
-  hx-target="#note"
->
-  <div class="result-title">{{ r.title or "(untitled)" }}</div>
-  <div class="result-path">{{ r.path }}</div>
-  <div class="result-preview">{{ r.preview }}</div>
-</button>
+<div class="result">
+  <div class="result-main"
+    hx-post="/read"
+    hx-vals='{"path": "{{ r.path }}"}'
+    hx-target="#note"
+  >
+    <div class="result-title">{{ r.title or "(untitled)" }}</div>
+    <div class="result-path">{{ r.path }}</div>
+    <div class="result-preview">{{ r.preview }}</div>
+  </div>
+  <a class="result-open" href="{{ r.obsidian_uri }}" title="Open in Obsidian">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+      <polyline points="15 3 21 3 21 9"/>
+      <line x1="10" y1="14" x2="21" y2="3"/>
+    </svg>
+  </a>
+</div>
 {% endfor %}
 {% else %}
 <p class="status">No results.</p>

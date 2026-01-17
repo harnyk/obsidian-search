@@ -12,6 +12,7 @@ from .core import (
     EmbeddingModelError,
     IndexError,
     VaultError,
+    build_obsidian_uri,
     ensure_embedding_model,
     get_vault_status,
     resolve_vault_path,
@@ -123,12 +124,13 @@ def search(ctx: VaultContext, query: str, limit: int):
         return
 
     for i, result in enumerate(results, 1):
+        obsidian_uri = build_obsidian_uri(ctx.vault_path, result.path)
         console.print(
             f"\n[bold cyan]{i}.[/bold cyan] "
-            f"[bold]{result.title or '(untitled)'}[/bold] "
+            f"[link={obsidian_uri}][bold]{result.title or '(untitled)'}[/bold][/link] "
             f"[dim]({result.score:.2f})[/dim]"
         )
-        console.print(f"   [dim]{result.path}[/dim]")
+        console.print(f"   [dim][link={obsidian_uri}]{result.path}[/link][/dim]")
         console.print(f"   {result.preview()}")
 
 

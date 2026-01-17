@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import quote
 
 # ============================================================================
 # Constants
@@ -25,6 +26,33 @@ ERROR_NO_INDEX = "No index found for {path}. Run 'obsidian-search index' first."
 ERROR_EMBEDDING_MODEL = (
     "Could not load embedding model. Make sure Ollama is running and bge-m3 is available."
 )
+
+
+# ============================================================================
+# Obsidian URI Helpers
+# ============================================================================
+
+
+def get_vault_name(vault_path: Path) -> str:
+    """Extract vault name from vault path (last component)."""
+    return vault_path.resolve().name
+
+
+def build_obsidian_uri(vault_path: Path, note_path: str) -> str:
+    """Build an Obsidian URI to open a note.
+
+    Args:
+        vault_path: Path to the Obsidian vault
+        note_path: Relative path to the note within the vault
+
+    Returns:
+        Obsidian URI string (e.g., obsidian://open?vault=MyVault&file=folder%2Fnote.md)
+    """
+    vault_name = get_vault_name(vault_path)
+    # URL-encode vault name and note path (safe='' to encode everything including /)
+    encoded_vault = quote(vault_name, safe="")
+    encoded_path = quote(note_path, safe="")
+    return f"obsidian://open?vault={encoded_vault}&file={encoded_path}"
 
 
 # ============================================================================
