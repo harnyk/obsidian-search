@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Obsidian Search</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #fafafa;
+      color: #222;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+    }
+
+    .search-box {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .search-box input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .search-box input:focus {
+      outline: none;
+      border-color: #888;
+    }
+
+    .search-box button {
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      background: #222;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .search-box button:hover {
+      background: #444;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1.5fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel h2 {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+    }
+
+    .status {
+      color: #888;
+      font-size: 0.875rem;
+    }
+
+    .result {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      background: #fff;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .result:hover {
+      border-color: #888;
+    }
+
+    .result-title {
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+
+    .result-path {
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 0.25rem;
+    }
+
+    .result-preview {
+      font-size: 0.875rem;
+      color: #555;
+    }
+
+    .note-header {
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #eee;
+    }
+
+    .note-title {
+      font-size: 1.125rem;
+      font-weight: 500;
+    }
+
+    .note-path {
+      font-size: 0.75rem;
+      color: #888;
+    }
+
+    .note-content {
+      white-space: pre-wrap;
+      font-size: 0.9375rem;
+      line-height: 1.7;
+    }
+
+    .empty {
+      color: #888;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Obsidian Search</h1>
+
+    <form class="search-box" hx-post="/search" hx-target="#results">
+      <input type="text" name="query" placeholder="Search your notes...">
+      <button type="submit">Search</button>
+    </form>
+
+    <div class="layout">
+      <section class="panel">
+        <h2>Results</h2>
+        <div id="results">
+          <p class="status" hx-get="/status" hx-trigger="load">Loading...</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Note</h2>
+        <div id="note">
+          <p class="empty">Select a result to view.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{% if error %}
+<p class="status">{{ error }}</p>
+{% elif results %}
+{% for r in results %}
+<button
+  class="result"
+  hx-post="/read"
+  hx-vals='{"path": "{{ r.path }}"}'
+  hx-target="#note"
+>
+  <div class="result-title">{{ r.title or "(untitled)" }}</div>
+  <div class="result-path">{{ r.path }}</div>
+  <div class="result-preview">{{ r.preview }}</div>
+</button>
+{% endfor %}
+{% else %}
+<p class="status">No results.</p>
+{% endif %}

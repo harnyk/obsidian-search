@@ -1,0 +1,9 @@
+{% if error %}
+<p class="status">{{ error }}</p>
+{% else %}
+<div class="note-header">
+  <div class="note-title">{{ title or "Note" }}</div>
+  <div class="note-path">{{ path }}</div>
+</div>
+<div class="note-content">{{ content }}</div>
+{% endif %}
