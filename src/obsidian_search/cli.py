@@ -5,49 +5,81 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
 
-from .database import get_chunk_count, get_db_path, get_note_count, init_db, search_similar
-from .embeddings import ensure_model_available, get_embedding
+from .core import (
+    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_WEB_PORT,
+    EmbeddingModelError,
+    IndexError,
+    VaultError,
+    ensure_embedding_model,
+    get_vault_status,
+    resolve_vault_path,
+    search_vault,
+    validate_vault,
+)
+from .database import get_db_path
 from .indexer import index_vault
 
 console = Console()
 
 
+def _error(message: str) -> None:
+    """Print error message and exit."""
+    console.print(f"[red]Error:[/red] {message}")
+    raise SystemExit(1)
+
+
+def _warning(message: str) -> None:
+    """Print warning message."""
+    console.print(f"[yellow]Warning:[/yellow] {message}")
+
+
+class VaultContext:
+    """Context object to pass vault path to subcommands."""
+
+    def __init__(self, vault: Path | None):
+        self.vault_path = resolve_vault_path(vault)
+
+
+pass_vault = click.make_pass_decorator(VaultContext)
+
+
 @click.group()
-def cli():
+@click.option(
+    "--vault",
+    "-v",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Path to Obsidian vault (default: current directory)",
+)
+@click.pass_context
+def cli(ctx: click.Context, vault: Path | None):
     """Obsidian vault semantic search using Ollama embeddings."""
-    pass
+    ctx.obj = VaultContext(vault)
 
 
 @cli.command()
-@click.argument("vault_path", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--update", is_flag=True, help="Only index new/modified files")
-def index(vault_path: Path, update: bool):
-    """Index an Obsidian vault for semantic search."""
-    vault_path = vault_path.resolve()
+@pass_vault
+def index(ctx: VaultContext, update: bool):
+    """Index the Obsidian vault for semantic search."""
+    vault_path = ctx.vault_path
 
-    if not (vault_path / ".obsidian").exists():
-        console.print(
-            f"[red]Error:[/red] {vault_path} does not appear to be an Obsidian vault "
-            "(missing .obsidian folder)"
-        )
-        raise SystemExit(1)
+    try:
+        validate_vault(vault_path)
+    except VaultError as e:
+        _error(str(e))
 
     console.print(f"[blue]Vault:[/blue] {vault_path}")
 
-    # Ensure embedding model is available
     with console.status("Checking embedding model..."):
-        if not ensure_model_available():
-            console.print(
-                "[red]Error:[/red] Could not load embedding model. "
-                "Make sure Ollama is running and bge-m3 is available."
-            )
-            raise SystemExit(1)
+        try:
+            ensure_embedding_model()
+        except EmbeddingModelError as e:
+            _error(str(e))
 
     console.print("[green]Embedding model ready[/green]")
 
-    # Index the vault
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -77,128 +109,75 @@ def index(vault_path: Path, update: bool):
 
 @cli.command()
 @click.argument("query")
-@click.option(
-    "--vault",
-    "-v",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Path to Obsidian vault (default: current directory)",
-)
-@click.option("--limit", "-n", default=10, help="Number of results to return")
-def search(query: str, vault: Path | None, limit: int):
-    """Search notes in an indexed vault."""
-    vault_path = (vault or Path.cwd()).resolve()
-    db_path = get_db_path(vault_path)
-
-    if not db_path.exists():
-        console.print(
-            f"[red]Error:[/red] No index found for {vault_path}. "
-            "Run 'obsidian-search index' first."
-        )
-        raise SystemExit(1)
-
-    conn = init_db(db_path)
-
-    # Generate query embedding
-    with console.status("Generating query embedding..."):
-        query_embedding = get_embedding(query)
-
-    # Search
-    results = search_similar(conn, query_embedding, limit=limit)
-    conn.close()
+@click.option("--limit", "-n", default=DEFAULT_SEARCH_LIMIT, help="Number of results to return")
+@pass_vault
+def search(ctx: VaultContext, query: str, limit: int):
+    """Search notes in the indexed vault."""
+    try:
+        results = search_vault(ctx.vault_path, query, limit=limit)
+    except IndexError as e:
+        _error(str(e))
 
     if not results:
         console.print("[yellow]No results found[/yellow]")
         return
 
-    # Display results - deduplicate by note path, keep best score
-    seen_paths: dict[str, tuple] = {}
-    for result in results:
-        note_id, path, title, note_content, chunk_content, distance = result
-        if path not in seen_paths or distance < seen_paths[path][5]:
-            seen_paths[path] = result
-
-    deduplicated = sorted(seen_paths.values(), key=lambda x: x[5])
-
-    for i, (note_id, path, title, note_content, chunk_content, distance) in enumerate(deduplicated, 1):
-        score = 1 / (1 + distance)
-        # Truncate chunk preview
-        preview = chunk_content.replace("\n", " ")[:200]
-        if len(chunk_content) > 200:
-            preview += "..."
-
-        console.print(f"\n[bold cyan]{i}.[/bold cyan] [bold]{title or '(untitled)'}[/bold] [dim]({score:.2f})[/dim]")
-        console.print(f"   [dim]{path}[/dim]")
-        console.print(f"   {preview}")
+    for i, result in enumerate(results, 1):
+        console.print(
+            f"\n[bold cyan]{i}.[/bold cyan] "
+            f"[bold]{result.title or '(untitled)'}[/bold] "
+            f"[dim]({result.score:.2f})[/dim]"
+        )
+        console.print(f"   [dim]{result.path}[/dim]")
+        console.print(f"   {result.preview()}")
 
 
 @cli.command()
-@click.option(
-    "--vault",
-    "-v",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Path to Obsidian vault (default: current directory)",
-)
-def status(vault: Path | None):
-    """Show indexing status for a vault."""
-    vault_path = (vault or Path.cwd()).resolve()
-    db_path = get_db_path(vault_path)
+@pass_vault
+def status(ctx: VaultContext):
+    """Show indexing status for the vault."""
+    vault_status = get_vault_status(ctx.vault_path)
 
-    console.print(f"[blue]Vault:[/blue] {vault_path}")
-    console.print(f"[blue]Database:[/blue] {db_path}")
+    console.print(f"[blue]Vault:[/blue] {vault_status.vault_path}")
+    console.print(f"[blue]Database:[/blue] {vault_status.db_path}")
 
-    if not db_path.exists():
+    if not vault_status.indexed:
         console.print("[yellow]Status:[/yellow] Not indexed")
-        return
-
-    conn = init_db(db_path)
-    note_count = get_note_count(conn)
-    chunk_count = get_chunk_count(conn)
-    conn.close()
-
-    console.print(f"[green]Status:[/green] Indexed ({note_count} notes, {chunk_count} chunks)")
+    else:
+        console.print(
+            f"[green]Status:[/green] Indexed ({vault_status.note_count} notes, {vault_status.chunk_count} chunks)"
+        )
 
 
 @cli.command()
-@click.argument("vault_path", type=click.Path(exists=True, file_okay=False, path_type=Path), required=False)
-def mcp(vault_path: Path | None):
-    """Start the MCP server for integration with AI assistants.
-
-    Optionally specify a VAULT_PATH to use as the default vault for all operations.
-    """
+@pass_vault
+def mcp(ctx: VaultContext):
+    """Start the MCP server for integration with AI assistants."""
     import asyncio
+
     from .mcp_server import run_server
-    resolved_path = vault_path.resolve() if vault_path else None
-    asyncio.run(run_server(resolved_path))
+
+    asyncio.run(run_server(ctx.vault_path))
 
 
 @cli.command()
-@click.option(
-    "--vault",
-    "-v",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Path to Obsidian vault (default: current directory)",
-)
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host interface to bind")
-@click.option("--port", default=8077, show_default=True, help="Port to serve the web app")
-def web(vault: Path | None, host: str, port: int):
+@click.option("--port", default=DEFAULT_WEB_PORT, show_default=True, help="Port to serve the web app")
+@pass_vault
+def web(ctx: VaultContext, host: str, port: int):
     """Start a simple web app to search and view notes."""
     from .web_app import run_web_app
 
-    vault_path = (vault or Path.cwd()).resolve()
+    vault_path = ctx.vault_path
 
-    if not (vault_path / ".obsidian").exists():
-        console.print(
-            f"[red]Error:[/red] {vault_path} does not appear to be an Obsidian vault "
-            "(missing .obsidian folder)"
-        )
-        raise SystemExit(1)
+    try:
+        validate_vault(vault_path)
+    except VaultError as e:
+        _error(str(e))
 
     db_path = get_db_path(vault_path)
     if not db_path.exists():
-        console.print(
-            f"[yellow]Warning:[/yellow] No index found for {vault_path}. "
-            "Run 'obsidian-search index' for search results."
-        )
+        _warning(f"No index found for {vault_path}. Run 'obsidian-search index' for search results.")
 
     console.print(f"[green]Web app:[/green] http://{host}:{port}")
     try:

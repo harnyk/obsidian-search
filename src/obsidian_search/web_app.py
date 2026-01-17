@@ -8,8 +8,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .database import get_db_path, init_db, search_similar
-from .embeddings import ensure_model_available, get_embedding
+from .core import (
+    DEFAULT_SEARCH_LIMIT,
+    EmbeddingModelError,
+    IndexError,
+    MAX_SEARCH_LIMIT,
+    ensure_embedding_model,
+    get_vault_status,
+    search_vault,
+)
+from .database import get_db_path
 
 HTML_PAGE = """<!doctype html>
 <html lang="en">
@@ -351,15 +359,18 @@ HTML_PAGE = """<!doctype html>
 """
 
 
-def _is_relative_to(path: Path, base: Path) -> bool:
+def _is_safe_path(path: Path, base: Path) -> bool:
+    """Check if path is safely within base directory (prevents path traversal)."""
     try:
-        path.relative_to(base)
+        path.resolve().relative_to(base.resolve())
         return True
     except ValueError:
         return False
 
 
 class WebAppServer(ThreadingHTTPServer):
+    """HTTP server with vault configuration."""
+
     def __init__(self, server_address: tuple[str, int], vault_path: Path):
         self.vault_path = vault_path
         self.db_path = get_db_path(vault_path)
@@ -367,130 +378,128 @@ class WebAppServer(ThreadingHTTPServer):
 
 
 class WebAppHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for the web app."""
+
     server: WebAppServer
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload).encode("utf-8")
+    def _send_response(self, status: int, content_type: str, body: bytes) -> None:
+        """Send an HTTP response with the given status, content type, and body."""
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+        """Send a JSON response."""
+        self._send_response(status, "application/json", json.dumps(payload).encode("utf-8"))
 
     def _send_html(self) -> None:
-        body = HTML_PAGE.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        """Send the HTML page."""
+        self._send_response(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
 
     def _read_json(self) -> dict[str, Any] | None:
+        """Read and parse JSON from request body."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
                 return None
-            raw = self.rfile.read(length)
-            return json.loads(raw.decode("utf-8"))
-        except Exception:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (json.JSONDecodeError, ValueError):
             return None
 
     def log_message(self, format: str, *args: Any) -> None:
-        return
+        """Suppress default logging."""
+        pass
 
     def do_GET(self) -> None:
+        """Handle GET requests."""
         parsed = urlparse(self.path)
+
         if parsed.path == "/":
             self._send_html()
             return
+
         if parsed.path == "/api/status":
-            db_exists = self.server.db_path.exists()
-            note_count = 0
-            if db_exists:
-                conn = init_db(self.server.db_path)
-                note_count = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
-                conn.close()
+            status = get_vault_status(self.server.vault_path)
             self._send_json(200, {
-                "indexed": db_exists,
-                "note_count": note_count,
+                "indexed": status.indexed,
+                "note_count": status.note_count,
             })
             return
+
         self._send_json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
+        """Handle POST requests."""
         if self.path == "/api/search":
-            payload = self._read_json() or {}
-            query = payload.get("query", "")
-            limit = payload.get("limit", 10)
-            if not isinstance(query, str) or not query.strip():
-                self._send_json(400, {"error": "Query is required."})
-                return
-            if not self.server.db_path.exists():
-                self._send_json(400, {"error": "Index missing. Run obsidian-search index first."})
-                return
-            if not ensure_model_available():
-                self._send_json(500, {"error": "Embedding model unavailable. Is Ollama running?"})
-                return
-            try:
-                if not isinstance(limit, int):
-                    limit = 10
-                limit = max(1, min(limit, 50))
-                conn = init_db(self.server.db_path)
-                query_embedding = get_embedding(query.strip())
-                results = search_similar(conn, query_embedding, limit=limit)
-                conn.close()
-                if not results:
-                    self._send_json(200, {"results": []})
-                    return
-                seen_paths: dict[str, tuple] = {}
-                for result in results:
-                    note_id, path, title, note_content, chunk_content, distance = result
-                    if path not in seen_paths or distance < seen_paths[path][5]:
-                        seen_paths[path] = result
-                deduplicated = sorted(seen_paths.values(), key=lambda x: x[5])
-                output = []
-                for note_id, path, title, note_content, chunk_content, distance in deduplicated:
-                    score = 1 / (1 + distance)
-                    preview = chunk_content.replace("\n", " ")[:200]
-                    if len(chunk_content) > 200:
-                        preview += "..."
-                    output.append({
-                        "title": title,
-                        "path": path,
-                        "score": round(score, 4),
-                        "preview": preview,
-                    })
-                self._send_json(200, {"results": output})
-                return
-            except Exception as exc:
-                self._send_json(500, {"error": f"Search failed: {exc}"})
-                return
+            self._handle_search()
+        elif self.path == "/api/read":
+            self._handle_read()
+        else:
+            self._send_json(404, {"error": "Not found"})
 
-        if self.path == "/api/read":
-            payload = self._read_json() or {}
-            note_path = payload.get("path", "")
-            if not isinstance(note_path, str) or not note_path:
-                self._send_json(400, {"error": "Path is required."})
-                return
-            try:
-                full_path = (self.server.vault_path / note_path).resolve()
-                if not _is_relative_to(full_path, self.server.vault_path):
-                    self._send_json(400, {"error": "Invalid path."})
-                    return
-                if not full_path.exists() or not full_path.is_file():
-                    self._send_json(404, {"error": "Note not found."})
-                    return
-                content = full_path.read_text(encoding="utf-8")
-                self._send_json(200, {
-                    "path": note_path,
-                    "content": content,
-                })
-                return
-            except Exception as exc:
-                self._send_json(500, {"error": f"Read failed: {exc}"})
-                return
+    def _handle_search(self) -> None:
+        """Handle search API request."""
+        payload = self._read_json() or {}
+        query = payload.get("query", "")
+        limit = payload.get("limit", DEFAULT_SEARCH_LIMIT)
 
-        self._send_json(404, {"error": "Not found"})
+        if not isinstance(query, str) or not query.strip():
+            self._send_json(400, {"error": "Query is required."})
+            return
+
+        if not isinstance(limit, int):
+            limit = DEFAULT_SEARCH_LIMIT
+        limit = max(1, min(limit, MAX_SEARCH_LIMIT))
+
+        try:
+            ensure_embedding_model()
+        except EmbeddingModelError:
+            self._send_json(500, {"error": "Embedding model unavailable. Is Ollama running?"})
+            return
+
+        try:
+            results = search_vault(self.server.vault_path, query.strip(), limit=limit)
+            output = [
+                {
+                    "title": r.title,
+                    "path": r.path,
+                    "score": round(r.score, 4),
+                    "preview": r.preview(),
+                }
+                for r in results
+            ]
+            self._send_json(200, {"results": output})
+        except IndexError as e:
+            self._send_json(400, {"error": str(e)})
+        except Exception as exc:
+            self._send_json(500, {"error": f"Search failed: {exc}"})
+
+    def _handle_read(self) -> None:
+        """Handle read note API request."""
+        payload = self._read_json() or {}
+        note_path = payload.get("path", "")
+
+        if not isinstance(note_path, str) or not note_path:
+            self._send_json(400, {"error": "Path is required."})
+            return
+
+        full_path = (self.server.vault_path / note_path).resolve()
+
+        if not _is_safe_path(full_path, self.server.vault_path):
+            self._send_json(400, {"error": "Invalid path."})
+            return
+
+        if not full_path.exists() or not full_path.is_file():
+            self._send_json(404, {"error": "Note not found."})
+            return
+
+        try:
+            content = full_path.read_text(encoding="utf-8")
+            self._send_json(200, {"path": note_path, "content": content})
+        except Exception as exc:
+            self._send_json(500, {"error": f"Read failed: {exc}"})
 
 
 def run_web_app(vault_path: Path, host: str = "127.0.0.1", port: int = 8077) -> None:
