@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-CLI tool (and MCP server + web app) that indexes a directory of documents into SQLite with `sqlite-vec` for semantic search using Ollama embeddings. Supports `.md`, `.txt`, and `.rst` files. Automatically detects Obsidian vaults and shows `obsidian://` deep links when applicable.
+CLI tool (and MCP server + web app) that indexes a directory of documents into SQLite with `sqlite-vec` for semantic search using local embeddings via `fastembed`. Supports `.md`, `.txt`, and `.rst` files. Automatically detects Obsidian vaults and shows `obsidian://` deep links when applicable.
 
 - **Language**: Python ≥ 3.10
 - **Package manager**: `uv`
@@ -20,7 +20,7 @@ CLI tool (and MCP server + web app) that indexes a directory of documents into S
 | `embeddings.py` | Local embedding via `fastembed` (`BAAI/bge-base-en-v1.5`, 768-dim, ONNX); module-level singleton; model cached in `~/.cache/fastembed` |
 | `indexer.py` | Directory scanning (skips hidden paths), change detection by `mtime`, `index_directory()` |
 | `parser.py` | Per-format parsing: `parse_markdown`, `parse_txt`, `parse_rst`; dispatch via `parse_document()`; overlapping chunking |
-| `mcp_server.py` | MCP server (name: `ragamuffin`) exposing `muffin_index/update/search/status/read` tools |
+| `mcp_server.py` | MCP server (name: `ragamuffin`) exposing `muffin_index`, `muffin_search`, `muffin_status`, `muffin_read` tools; reads `RAGAMUFFIN_DIRECTORY` and `RAGAMUFFIN_DESCRIPTION` from env |
 | `web_app.py` | Flask web UI for search and document viewing |
 | `templates/` | Jinja2 templates used by the Flask app |
 
@@ -49,7 +49,7 @@ All parsers produce a `ParsedDocument` and feed into the shared `chunk_text()` f
 - **Chunking**: `CHUNK_SIZE = 1500` chars, `CHUNK_OVERLAP = 200` chars; each chunk is prefixed with the document title for embedding context.
 - **Deduplication**: Multiple chunks from the same document are collapsed to the best-scoring one (`deduplicate_results` in `core.py`).
 - **Unified search**: `search_dir()` in `core.py` is the single implementation used by CLI, web app, and MCP server. Do not duplicate it.
-- **MCP dual-mode**: When started via `muffin mcp`, `dir_path` becomes optional for all tools; without a default, callers must pass it explicitly.
+- **MCP directory resolution**: `muffin mcp` resolves the directory in this order: `--directory` CLI flag → `RAGAMUFFIN_DIRECTORY` env var → cwd. When a default directory is set, `dir_path` is omitted from all tool schemas; otherwise callers must pass it explicitly. `RAGAMUFFIN_DESCRIPTION` is prepended to all tool descriptions so agents can identify the right server instance.
 - **Error types**: `IndexError`, `EmbeddingModelError` are defined in `core.py` and should be raised (not generic exceptions) for expected failure paths.
 
 ## Running & Installing
@@ -81,7 +81,7 @@ There is a slash command `.claude/commands/sync-all.md` that automates all three
 ## Conventions
 
 - All shared logic belongs in `core.py`, not duplicated across CLI / web / MCP.
-- New CLI commands use the `@pass_dir` decorator and `DirContext`.
+- New CLI commands use the `@pass_dir` decorator and `DirContext`, except `mcp` which reads `ctx.parent.params.get("directory")` directly to preserve `None` when no flag is given (so env var fallback works).
 - Database connections are always opened via `open_database()` context manager (ensures `sqlite-vec` is loaded and connection is closed).
 - Hidden files and folders (names starting with `.`) are excluded from indexing.
 - Do not add comments that narrate what the code does. Comments should explain non-obvious intent or constraints only.
