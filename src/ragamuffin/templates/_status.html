@@ -1,0 +1,5 @@
+{% if indexed %}
+<p class="status">{{ doc_count }} documents indexed.</p>
+{% else %}
+<p class="status">Index missing. Run <code>muffin index</code> first.</p>
+{% endif %}

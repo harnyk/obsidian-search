@@ -16,9 +16,9 @@ def serialize_vector(vector: list[float]) -> bytes:
     return struct.pack(f"{len(vector)}f", *vector)
 
 
-def get_db_path(vault_path: Path) -> Path:
-    """Get the database path for a vault (stored in vault's .obsidian folder)."""
-    return vault_path / ".obsidian" / "obsidian-search.db"
+def get_db_path(dir_path: Path) -> Path:
+    """Get the database path for a directory (stored in <dir>/.ragamuffin/index.db)."""
+    return dir_path / ".ragamuffin" / "index.db"
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:

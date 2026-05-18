@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Obsidian Search</title>
+  <title>Ragamuffin</title>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -195,10 +195,10 @@
 </head>
 <body>
   <div class="container">
-    <h1>Obsidian Search</h1>
+    <h1>Ragamuffin</h1>
 
     <form class="search-box" hx-post="/search" hx-target="#results">
-      <input type="text" name="query" placeholder="Search your notes...">
+      <input type="text" name="query" placeholder="Search your documents...">
       <button type="submit">Search</button>
     </form>
 
@@ -211,7 +211,7 @@
       </section>
 
       <section class="panel">
-        <h2>Note</h2>
+        <h2>Document</h2>
         <div id="note">
           <p class="empty">Select a result to view.</p>
         </div>

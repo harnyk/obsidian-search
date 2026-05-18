@@ -1,4 +1,4 @@
-"""Minimal web app server for searching and viewing Obsidian notes."""
+"""Minimal web app server for searching and viewing documents."""
 
 from __future__ import annotations
 
@@ -13,8 +13,9 @@ from .core import (
     MAX_SEARCH_LIMIT,
     build_obsidian_uri,
     ensure_embedding_model,
-    get_vault_status,
-    search_vault,
+    get_index_status,
+    is_obsidian_vault,
+    search_dir,
 )
 
 
@@ -27,10 +28,11 @@ def _is_safe_path(path: Path, base: Path) -> bool:
         return False
 
 
-def create_app(vault_path: Path) -> Flask:
+def create_app(dir_path: Path) -> Flask:
     """Create and configure the Flask app."""
     app = Flask(__name__, template_folder="templates")
-    app.config["VAULT_PATH"] = vault_path
+    app.config["DIR_PATH"] = dir_path
+    obsidian = is_obsidian_vault(dir_path)
 
     @app.get("/")
     def index():
@@ -38,8 +40,8 @@ def create_app(vault_path: Path) -> Flask:
 
     @app.get("/status")
     def status():
-        status = get_vault_status(vault_path)
-        return render_template("_status.html", indexed=status.indexed, note_count=status.note_count)
+        s = get_index_status(dir_path)
+        return render_template("_status.html", indexed=s.indexed, doc_count=s.doc_count)
 
     @app.post("/search")
     def search():
@@ -53,17 +55,17 @@ def create_app(vault_path: Path) -> Flask:
         try:
             ensure_embedding_model()
         except EmbeddingModelError:
-            return render_template("_results.html", results=[], error="Embedding model unavailable. Is Ollama running?")
+            return render_template("_results.html", results=[], error="Embedding model unavailable. Check fastembed installation.")
 
         try:
-            results = search_vault(vault_path, query, limit=limit)
+            results = search_dir(dir_path, query, limit=limit)
             output = [
                 {
                     "title": r.title,
                     "path": r.path,
                     "score": round(r.score, 4),
                     "preview": r.preview(),
-                    "obsidian_uri": build_obsidian_uri(vault_path, r.path),
+                    "obsidian_uri": build_obsidian_uri(dir_path, r.path) if obsidian else None,
                 }
                 for r in results
             ]
@@ -75,30 +77,37 @@ def create_app(vault_path: Path) -> Flask:
 
     @app.post("/read")
     def read():
-        note_path = request.form.get("path", "")
-        if not note_path:
+        doc_path = request.form.get("path", "")
+        if not doc_path:
             return render_template("_note.html", error="Path is required.")
 
-        full_path = (vault_path / note_path).resolve()
+        full_path = (dir_path / doc_path).resolve()
 
-        if not _is_safe_path(full_path, vault_path):
+        if not _is_safe_path(full_path, dir_path):
             return render_template("_note.html", error="Invalid path.")
 
         if not full_path.exists() or not full_path.is_file():
-            return render_template("_note.html", error="Note not found.")
+            return render_template("_note.html", error="Document not found.")
 
         try:
             content = full_path.read_text(encoding="utf-8")
             title = full_path.stem
-            obsidian_uri = build_obsidian_uri(vault_path, note_path)
-            return render_template("_note.html", path=note_path, title=title, content=content, obsidian_uri=obsidian_uri, error=None)
+            obsidian_uri = build_obsidian_uri(dir_path, doc_path) if obsidian else None
+            return render_template(
+                "_note.html",
+                path=doc_path,
+                title=title,
+                content=content,
+                obsidian_uri=obsidian_uri,
+                error=None,
+            )
         except Exception as exc:
             return render_template("_note.html", error=f"Read failed: {exc}")
 
     return app
 
 
-def run_web_app(vault_path: Path, host: str = "127.0.0.1", port: int = 8077) -> None:
+def run_web_app(dir_path: Path, host: str = "127.0.0.1", port: int = 8077) -> None:
     """Run the web app server."""
-    app = create_app(vault_path)
+    app = create_app(dir_path)
     app.run(host=host, port=port, debug=False)
