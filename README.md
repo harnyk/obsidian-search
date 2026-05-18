@@ -4,8 +4,22 @@ Semantic document search for local directories. Indexes `.md`, `.txt`, and `.rst
 
 ## Install
 
+**From GitHub (no PyPI required):**
+
+```bash
+uv tool install git+https://github.com/harnyk/ragamuffin-mcp
+```
+
+**From local source:**
+
 ```bash
 uv tool install .
+```
+
+**Run without installing (ephemeral):**
+
+```bash
+uvx --from git+https://github.com/harnyk/ragamuffin-mcp muffin --directory ~/notes search "your query"
 ```
 
 ## Usage
@@ -65,12 +79,30 @@ RAGAMUFFIN_DIRECTORY=~/notes muffin mcp
 
 ### Claude Desktop config
 
+If installed via `uv tool install`:
+
 ```json
 {
   "mcpServers": {
     "notes": {
       "command": "muffin",
       "args": ["mcp"],
+      "env": {
+        "RAGAMUFFIN_DIRECTORY": "/Users/you/notes"
+      }
+    }
+  }
+}
+```
+
+Or without installing, using `uvx` directly from GitHub:
+
+```json
+{
+  "mcpServers": {
+    "notes": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/harnyk/ragamuffin-mcp", "muffin", "mcp"],
       "env": {
         "RAGAMUFFIN_DIRECTORY": "/Users/you/notes"
       }
