@@ -12,6 +12,7 @@ dependencies = [
     "rich",
     "mcp",
     "flask",
+    "pygments",
 ]
 
 [project.scripts]
