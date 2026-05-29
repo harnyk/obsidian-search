@@ -2,6 +2,11 @@
 
 Semantic document search for local directories. Indexes `.md`, `.txt`, and `.rst` files into SQLite with local embeddings (no API keys, no cloud).
 
+## Prerequisites
+
+- Python ≥ 3.10
+- [uv](https://docs.astral.sh/uv/) (for install and `uvx`)
+
 ## Install
 
 **From GitHub (no PyPI required):**
@@ -22,7 +27,17 @@ uv tool install .
 uvx --from git+https://github.com/harnyk/ragamuffin-mcp muffin --directory ~/notes search "your query"
 ```
 
+Pin a branch, tag, or commit:
+
+```bash
+uvx --from git+https://github.com/harnyk/ragamuffin-mcp@v0.9.0 muffin --directory ~/notes search "your query"
+```
+
+On first run, the embedding model (~435 MB) is downloaded and cached in `~/.cache/fastembed`.
+
 ## Usage
+
+All commands accept `--directory` / `-d` to point at a folder. If omitted, the current working directory is used.
 
 ### Index a directory
 
@@ -40,6 +55,7 @@ muffin --directory ~/notes index --force
 
 ```bash
 muffin --directory ~/notes search "how to set up a VPN"
+muffin --directory ~/notes search --limit 5 "kubernetes ingress"
 ```
 
 ### Check index status
@@ -52,7 +68,13 @@ muffin --directory ~/notes status
 
 ```bash
 muffin --directory ~/notes web
-# Open http://127.0.0.1:5000
+# Open http://127.0.0.1:8077
+```
+
+Custom host/port:
+
+```bash
+muffin --directory ~/notes web --host 0.0.0.0 --port 8080
 ```
 
 ### Short alias
@@ -61,9 +83,11 @@ muffin --directory ~/notes web
 mf --directory ~/notes search "kubernetes ingress"
 ```
 
+With `uvx`, replace `muffin` with the full `uvx --from git+https://github.com/harnyk/ragamuffin-mcp muffin` prefix (or use the short alias `mf`).
+
 ## MCP Server
 
-Expose the search tools to AI assistants (Claude Desktop, etc.).
+Expose the search tools to AI assistants (Cursor, Claude Desktop, etc.).
 
 ### With a fixed directory (recommended)
 
@@ -77,9 +101,21 @@ Or via environment variables — useful when the assistant launches the server:
 RAGAMUFFIN_DIRECTORY=~/notes muffin mcp
 ```
 
-### Claude Desktop config
+With `uvx`:
 
-If installed via `uv tool install`:
+```bash
+RAGAMUFFIN_DIRECTORY=~/notes uvx --from git+https://github.com/harnyk/ragamuffin-mcp muffin mcp
+```
+
+### Without a fixed directory
+
+If neither `--directory` nor `RAGAMUFFIN_DIRECTORY` is set, each MCP tool call must include a `dir_path` argument. When a default directory is configured, `dir_path` is omitted from the tool schemas.
+
+### Cursor config
+
+Project-local (`.cursor/mcp.json`) or global (`~/.cursor/mcp.json`):
+
+**Installed via `uv tool install`:**
 
 ```json
 {
@@ -95,7 +131,7 @@ If installed via `uv tool install`:
 }
 ```
 
-Or without installing, using `uvx` directly from GitHub:
+**Without installing, via `uvx` from GitHub:**
 
 ```json
 {
@@ -111,6 +147,10 @@ Or without installing, using `uvx` directly from GitHub:
 }
 ```
 
+### Claude Desktop config
+
+Same JSON as above; config file location is platform-specific (see [Claude Desktop MCP docs](https://modelcontextprotocol.io/quickstart/user)).
+
 ### Multiple instances with descriptions
 
 Run one server per knowledge base and set `RAGAMUFFIN_DESCRIPTION` so the agent knows which is which:
@@ -119,16 +159,16 @@ Run one server per knowledge base and set `RAGAMUFFIN_DESCRIPTION` so the agent 
 {
   "mcpServers": {
     "devops-docs": {
-      "command": "muffin",
-      "args": ["mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/harnyk/ragamuffin-mcp", "muffin", "mcp"],
       "env": {
         "RAGAMUFFIN_DIRECTORY": "/Users/you/devops-docs",
         "RAGAMUFFIN_DESCRIPTION": "Search Acme Inc DevOps documentation"
       }
     },
     "personal-notes": {
-      "command": "muffin",
-      "args": ["mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/harnyk/ragamuffin-mcp", "muffin", "mcp"],
       "env": {
         "RAGAMUFFIN_DIRECTORY": "/Users/you/notes",
         "RAGAMUFFIN_DESCRIPTION": "Search personal notes and journal"
