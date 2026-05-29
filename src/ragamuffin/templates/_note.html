@@ -17,5 +17,9 @@
   </a>
   {% endif %}
 </div>
+{% if highlighted is defined and highlighted %}
+<div class="note-content note-content--md">{{ highlighted | safe }}</div>
+{% else %}
 <div class="note-content">{{ content }}</div>
+{% endif %}
 {% endif %}

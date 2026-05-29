@@ -103,14 +103,20 @@ def create_app(dir_path: Path) -> Flask:
             content = full_path.read_text(encoding="utf-8")
             title = full_path.stem
             obsidian_uri = build_obsidian_uri(dir_path, doc_path) if obsidian else None
-            return render_template(
-                "_note.html",
-                path=doc_path,
-                title=title,
-                content=content,
-                obsidian_uri=obsidian_uri,
-                error=None,
-            )
+            template_kwargs = {
+                "path": doc_path,
+                "title": title,
+                "obsidian_uri": obsidian_uri,
+                "error": None,
+            }
+            if full_path.suffix.lower() == ".md":
+                try:
+                    template_kwargs["highlighted"] = highlight_markdown(content)
+                except Exception:
+                    template_kwargs["content"] = content
+            else:
+                template_kwargs["content"] = content
+            return render_template("_note.html", **template_kwargs)
         except Exception as exc:
             return render_template("_note.html", error=f"Read failed: {exc}")
 
