@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from flask import Flask, render_template, request
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import MarkdownLexer
 
 from .core import (
     DEFAULT_SEARCH_LIMIT,
@@ -17,6 +20,13 @@ from .core import (
     is_obsidian_vault,
     search_dir,
 )
+
+
+_MARKDOWN_FORMATTER = HtmlFormatter(style="friendly", cssclass="highlight-md")
+
+
+def highlight_markdown(content: str) -> str:
+    return highlight(content, MarkdownLexer(), _MARKDOWN_FORMATTER)
 
 
 def _is_safe_path(path: Path, base: Path) -> bool:
