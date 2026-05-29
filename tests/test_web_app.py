@@ -46,5 +46,16 @@ class ReadRouteTests(unittest.TestCase):
             self.assertNotIn("note-content--md", body)
 
 
+class IndexPageTests(unittest.TestCase):
+    def test_index_includes_pygments_css(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = create_app(Path(tmpdir)).test_client()
+            response = client.get("/")
+            self.assertEqual(response.status_code, 200)
+            body = response.get_data(as_text=True)
+            self.assertIn(".highlight-md", body)
+            self.assertIn("note-content--md", body)
+
+
 if __name__ == "__main__":
     unittest.main()

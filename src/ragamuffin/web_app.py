@@ -44,6 +44,10 @@ def create_app(dir_path: Path) -> Flask:
     app.config["DIR_PATH"] = dir_path
     obsidian = is_obsidian_vault(dir_path)
 
+    @app.context_processor
+    def inject_pygments_css():
+        return {"pygments_css": _MARKDOWN_FORMATTER.get_style_defs(".highlight-md")}
+
     @app.get("/")
     def index():
         return render_template("index.html")
