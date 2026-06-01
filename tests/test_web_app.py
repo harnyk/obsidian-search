@@ -55,6 +55,7 @@ class IndexPageTests(unittest.TestCase):
             body = response.get_data(as_text=True)
             self.assertIn(".highlight-md", body)
             self.assertIn("note-content--md", body)
+            self.assertIn("pre-wrap", body)
 
 
 if __name__ == "__main__":
