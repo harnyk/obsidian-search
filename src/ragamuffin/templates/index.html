@@ -8,6 +8,11 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
     body {
       font-family: system-ui, -apple-system, sans-serif;
       background: #fafafa;
@@ -17,8 +22,12 @@
 
     .container {
       max-width: 1100px;
+      height: 100%;
       margin: 0 auto;
       padding: 2rem 1rem;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
     h1 {
@@ -62,6 +71,8 @@
     }
 
     .layout {
+      flex: 1;
+      min-height: 0;
       display: grid;
       grid-template-columns: 1fr 1.5fr;
       gap: 2rem;
@@ -69,6 +80,13 @@
 
     @media (max-width: 768px) {
       .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .panel h2 {
@@ -202,6 +220,12 @@
       white-space: pre-wrap;
       word-break: break-word;
       overflow-wrap: anywhere;
+    }
+
+    #results, #note {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
     }
 
     .empty {
