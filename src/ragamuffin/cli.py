@@ -15,6 +15,7 @@ from .core import (
     ensure_embedding_model,
     get_index_status,
     is_obsidian_vault,
+    read_chunk_window,
     resolve_dir_path,
     search_dir,
 )
@@ -134,8 +135,74 @@ def search(ctx: DirContext, query: str, limit: int):
             f"{title_markup} "
             f"[dim]({result.score:.2f})[/dim]"
         )
+        console.print(f"   [dim]chunk_id:[/dim] {result.chunk_id}")
         console.print(f"   {path_markup}")
-        console.print(f"   {result.preview()}")
+        console.print(f"   {result.chunk_content}")
+
+
+@cli.command("read")
+@click.option("--path", "doc_path", type=str, default=None, help="Document path (file mode)")
+@click.option("--chunk-id", type=int, default=None, help="Opaque chunk id from search (chunk mode)")
+@click.option("--before", default=0, show_default=True, help="Preceding chunks to include (chunk mode)")
+@click.option("--after", default=0, show_default=True, help="Following chunks to include (chunk mode)")
+@click.option("--offset", default=0, show_default=True, help="Line offset (file mode)")
+@click.option("--limit", type=int, default=None, help="Max lines (file mode)")
+@pass_dir
+def read_cmd(
+    ctx: DirContext,
+    doc_path: str | None,
+    chunk_id: int | None,
+    before: int,
+    after: int,
+    offset: int,
+    limit: int | None,
+):
+    """Read a file by path or a chunk window by chunk_id."""
+    dir_path = ctx.dir_path
+
+    if chunk_id is not None:
+        try:
+            window = read_chunk_window(dir_path, chunk_id, before=before, after=after)
+        except IndexError as e:
+            _error(str(e))
+
+        console.print(f"[blue]Path:[/blue] {window.path}")
+        console.print(f"[blue]Title:[/blue] {window.title or '(untitled)'}")
+        console.print(f"[blue]focus_id:[/blue] {window.focus_id}")
+        console.print(
+            f"[blue]prev_id:[/blue] {window.prev_id if window.prev_id is not None else 'null'}  "
+            f"[blue]next_id:[/blue] {window.next_id if window.next_id is not None else 'null'}"
+        )
+        console.print("[dim]chunk_id is opaque — use prev_id/next_id to scroll[/dim]")
+        for piece in window.chunks:
+            marker = " [focus]" if piece.chunk_id == window.focus_id else ""
+            console.print(f"\n[bold]### chunk_id={piece.chunk_id}{marker}[/bold]")
+            console.print(piece.content)
+        return
+
+    if not doc_path:
+        _error("Provide --path (file mode) or --chunk-id (chunk mode).")
+
+    full_path = dir_path / doc_path
+    if not full_path.exists():
+        _error(f"Document not found: {doc_path}")
+    if not full_path.is_file():
+        _error(f"Not a file: {doc_path}")
+
+    content = full_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    total_lines = len(lines)
+    if offset > 0:
+        lines = lines[offset:]
+    if limit is not None:
+        lines = lines[:limit]
+
+    console.print(f"[blue]File:[/blue] {doc_path}")
+    console.print(f"[blue]Total lines:[/blue] {total_lines}")
+    if offset > 0 or limit is not None:
+        console.print(f"[dim]Showing lines {offset + 1}-{offset + len(lines)} of {total_lines}[/dim]")
+    console.print("---")
+    console.print("\n".join(lines))
 
 
 @cli.command()

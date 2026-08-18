@@ -6,8 +6,11 @@ import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 from urllib.parse import quote
+
+if TYPE_CHECKING:
+    from .database import ChunkWindow
 
 # ============================================================================
 # Constants
@@ -63,10 +66,10 @@ def build_obsidian_uri(dir_path: Path, note_path: str) -> str:
 class SearchResult:
     """A single search result with all relevant data."""
 
+    chunk_id: int
     note_id: int
     path: str
     title: str
-    note_content: str
     chunk_content: str
     distance: float
 
@@ -85,12 +88,12 @@ class SearchResult:
     @classmethod
     def from_row(cls, row: tuple) -> SearchResult:
         """Create SearchResult from a database row tuple."""
-        note_id, path, title, note_content, chunk_content, distance = row
+        chunk_id, note_id, path, title, chunk_content, distance = row
         return cls(
+            chunk_id=chunk_id,
             note_id=note_id,
             path=path,
             title=title,
-            note_content=note_content,
             chunk_content=chunk_content,
             distance=distance,
         )
@@ -216,6 +219,32 @@ def search_dir(
         raw_results = search_similar(conn, query_embedding, limit=limit)
 
     return parse_search_results(raw_results)
+
+
+def read_chunk_window(
+    dir_path: Path,
+    chunk_id: int,
+    before: int = 0,
+    after: int = 0,
+) -> ChunkWindow:
+    """Read a chunk window from the index by opaque chunk_id.
+
+    Raises:
+        IndexError: If the directory is not indexed or chunk_id is unknown.
+    """
+    from .database import get_chunk_window, get_db_path
+
+    db_path = get_db_path(dir_path)
+    require_index(db_path, dir_path)
+
+    with open_database(db_path) as conn:
+        window = get_chunk_window(conn, chunk_id, before=before, after=after)
+
+    if window is None:
+        raise IndexError(
+            f"Chunk {chunk_id} not found. Re-run search — ids are invalid after reindex."
+        )
+    return window
 
 
 # ============================================================================

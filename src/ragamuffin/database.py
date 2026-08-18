@@ -4,11 +4,28 @@ from __future__ import annotations
 
 import sqlite3
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 
 import sqlite_vec
 
 from .embeddings import EMBEDDING_DIM
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkPiece:
+    chunk_id: int
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkWindow:
+    path: str
+    title: str
+    focus_id: int
+    chunks: tuple[ChunkPiece, ...]
+    prev_id: int | None
+    next_id: int | None
 
 
 def serialize_vector(vector: list[float]) -> bytes:
@@ -141,19 +158,19 @@ def search_similar(
     conn: sqlite3.Connection,
     query_embedding: list[float],
     limit: int = 10,
-) -> list[tuple[int, str, str, str, str, float]]:
+) -> list[tuple[int, int, str, str, str, float]]:
     """Search for chunks similar to the query embedding.
 
-    Returns list of (note_id, path, title, note_content, chunk_content, distance) tuples,
+    Returns list of (chunk_id, note_id, path, title, chunk_content, distance) tuples,
     ordered by distance (ascending).
     """
     cursor = conn.execute(
         """
         SELECT
+            chunks.id,
             notes.id,
             notes.path,
             notes.title,
-            notes.content,
             chunks.content,
             embeddings.distance
         FROM embeddings
@@ -166,6 +183,78 @@ def search_similar(
         (serialize_vector(query_embedding), limit)
     )
     return cursor.fetchall()
+
+
+def get_chunk_window(
+    conn: sqlite3.Connection,
+    chunk_id: int,
+    before: int = 0,
+    after: int = 0,
+) -> ChunkWindow | None:
+    """Load a chunk and an optional neighborhood in the same document.
+
+    ``prev_id`` / ``next_id`` are the immediate neighbors of the focus chunk
+    (not of the window edges). Chunk ids are opaque; do not infer document
+    order from numeric id values.
+    """
+    before = max(0, before)
+    after = max(0, after)
+
+    cursor = conn.execute(
+        """
+        SELECT chunks.id, chunks.note_id, chunks.chunk_index, chunks.content,
+               notes.path, notes.title
+        FROM chunks
+        JOIN notes ON notes.id = chunks.note_id
+        WHERE chunks.id = ?
+        """,
+        (chunk_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+
+    focus_id, note_id, focus_index, _focus_content, path, title = row
+
+    cursor = conn.execute(
+        """
+        SELECT id, chunk_index, content
+        FROM chunks
+        WHERE note_id = ?
+          AND chunk_index BETWEEN ? AND ?
+        ORDER BY chunk_index
+        """,
+        (note_id, focus_index - before, focus_index + after),
+    )
+    pieces = tuple(
+        ChunkPiece(chunk_id=r[0], content=r[2]) for r in cursor.fetchall()
+    )
+
+    cursor = conn.execute(
+        """
+        SELECT id FROM chunks
+        WHERE note_id = ? AND chunk_index = ?
+        """,
+        (note_id, focus_index - 1),
+    )
+    prev_row = cursor.fetchone()
+    cursor = conn.execute(
+        """
+        SELECT id FROM chunks
+        WHERE note_id = ? AND chunk_index = ?
+        """,
+        (note_id, focus_index + 1),
+    )
+    next_row = cursor.fetchone()
+
+    return ChunkWindow(
+        path=path,
+        title=title or "",
+        focus_id=focus_id,
+        chunks=pieces,
+        prev_id=prev_row[0] if prev_row else None,
+        next_id=next_row[0] if next_row else None,
+    )
 
 
 def get_all_notes_mtime(conn: sqlite3.Connection) -> dict[str, float]:

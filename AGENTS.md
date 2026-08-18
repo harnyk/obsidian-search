@@ -14,9 +14,9 @@ CLI tool (and MCP server + web app) that indexes a directory of documents into S
 
 | File | Responsibility |
 |------|---------------|
-| `cli.py` | Click CLI — commands: `index`, `search`, `status`, `mcp`, `web`; `--directory/-d` option |
-| `core.py` | Shared constants, data types (`SearchResult`, `IndexStatus`), exceptions, `is_obsidian_vault()`, `build_obsidian_uri()`, `search_dir()`, `get_index_status()` |
-| `database.py` | SQLite + `sqlite-vec` operations; DB lives at `<dir>/.ragamuffin/index.db` |
+| `cli.py` | Click CLI — commands: `index`, `search`, `read`, `status`, `mcp`, `web`; `--directory/-d` option |
+| `core.py` | Shared constants, data types (`SearchResult`, `IndexStatus`), exceptions, `is_obsidian_vault()`, `build_obsidian_uri()`, `search_dir()`, `read_chunk_window()`, `get_index_status()` |
+| `database.py` | SQLite + `sqlite-vec` operations; DB lives at `<dir>/.ragamuffin/index.db`; `get_chunk_window()` for opaque `chunk_id` navigation |
 | `embeddings.py` | Local embedding via `fastembed` (`BAAI/bge-base-en-v1.5`, 768-dim, ONNX); module-level singleton; model cached in `~/.cache/fastembed` |
 | `indexer.py` | Directory scanning (skips hidden paths), change detection by `mtime`, `index_directory()` |
 | `parser.py` | Per-format parsing: `parse_markdown`, `parse_txt`, `parse_rst`; dispatch via `parse_document()`; overlapping chunking |
@@ -29,7 +29,7 @@ CLI tool (and MCP server + web app) that indexes a directory of documents into S
 `is_obsidian_vault(dir_path)` in `core.py` checks for `<dir>/.obsidian/`. When true:
 
 - CLI `search`: results are rendered as clickable `obsidian://` links
-- MCP `muffin_search`: includes `Obsidian URI:` line per result
+- MCP `muffin_search`: includes `chunk_id`, full chunk text, and `Obsidian URI:` when applicable
 - Web app: "Open in Obsidian" button is shown in results and document view
 
 When false, plain file paths are used and no Obsidian UI is shown.
@@ -47,6 +47,7 @@ All parsers produce a `ParsedDocument` and feed into the shared `chunk_text()` f
 ## Key Design Decisions
 
 - **Chunking**: `CHUNK_SIZE = 1500` chars, `CHUNK_OVERLAP = 200` chars; each chunk is prefixed with the document title for embedding context.
+- **Chunk navigation**: Search returns opaque `chunk_id` (do not infer order from numeric values). `muffin_read` / `muffin read --chunk-id` load a window via `read_chunk_window()` and expose `prev_id`/`next_id` for scrolling.
 - **Deduplication**: Multiple chunks from the same document are collapsed to the best-scoring one (`deduplicate_results` in `core.py`).
 - **Unified search**: `search_dir()` in `core.py` is the single implementation used by CLI, web app, and MCP server. Do not duplicate it.
 - **MCP directory resolution**: `muffin mcp` resolves the directory in this order: `--directory` CLI flag → `RAGAMUFFIN_DIRECTORY` env var → cwd. When a default directory is set, `dir_path` is omitted from all tool schemas; otherwise callers must pass it explicitly. `RAGAMUFFIN_DESCRIPTION` is prepended to all tool descriptions so agents can identify the right server instance.

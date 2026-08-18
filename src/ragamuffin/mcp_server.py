@@ -11,11 +11,11 @@ from .core import (
     DEFAULT_SEARCH_LIMIT,
     EmbeddingModelError,
     IndexError,
-    PREVIEW_LENGTH,
     build_obsidian_uri,
     ensure_embedding_model,
     get_index_status,
     is_obsidian_vault,
+    read_chunk_window,
     search_dir,
 )
 from .indexer import index_directory
@@ -75,7 +75,12 @@ def _build_tool_schemas(with_dir_path: bool, description: str | None = None) -> 
         ),
         Tool(
             name="muffin_search",
-            description=with_desc("Semantic search in an indexed directory. Returns documents matching the query."),
+            description=with_desc(
+                "Semantic search in an indexed directory. Returns matching chunks with "
+                "opaque chunk_id values and full chunk text. chunk_id is not ordered — "
+                "do not assume id N+1 follows id N; use muffin_read with chunk_id and "
+                "prev_id/next_id to navigate neighboring chunks."
+            ),
             inputSchema=clean_schema(make_schema(
                 {
                     "query": {
@@ -98,24 +103,42 @@ def _build_tool_schemas(with_dir_path: bool, description: str | None = None) -> 
         ),
         Tool(
             name="muffin_read",
-            description=with_desc("Read a document from the directory by its path."),
+            description=with_desc(
+                "Read by file path (line offset/limit) or by opaque chunk_id from search. "
+                "In chunk mode, returns a window of chunks plus prev_id/next_id for "
+                "scrolling; do not infer document order from numeric chunk_id values."
+            ),
             inputSchema=clean_schema(make_schema(
                 {
                     "path": {
                         "type": "string",
-                        "description": "Path to the document (relative to directory root, as returned by search)",
+                        "description": "Path to the document (relative to directory root). Required for file mode.",
+                    },
+                    "chunk_id": {
+                        "type": "integer",
+                        "description": "Opaque chunk id from muffin_search. When set, reads from the index (chunk mode) instead of the file.",
+                    },
+                    "before": {
+                        "type": "integer",
+                        "description": "In chunk mode: number of preceding chunks to include (default: 0)",
+                        "default": 0,
+                    },
+                    "after": {
+                        "type": "integer",
+                        "description": "In chunk mode: number of following chunks to include (default: 0)",
+                        "default": 0,
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Line offset to start reading from (0-based, default: 0)",
+                        "description": "File mode: line offset to start reading from (0-based, default: 0)",
                         "default": 0,
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of lines to return (default: all)",
+                        "description": "File mode: maximum number of lines to return (default: all)",
                     },
                 },
-                ["path"],
+                [],
             )),
         ),
     ]
@@ -189,13 +212,18 @@ async def handle_search(
     if not results:
         return _text("No results found.")
 
-    lines = [f"Search results for: {query}", ""]
+    lines = [
+        f"Search results for: {query}",
+        "Note: chunk_id is opaque — do not assume consecutive ids are neighbors; "
+        "use muffin_read(chunk_id=...) and prev_id/next_id to scroll.",
+        "",
+    ]
     for i, result in enumerate(results, 1):
-        preview = result.preview(length=PREVIEW_LENGTH + 100)
         entry = [
             f"{i}. {result.title or '(untitled)'} (score: {result.score:.2f})",
+            f"   chunk_id: {result.chunk_id}",
             f"   Path: {result.path}",
-            f"   Preview: {preview}",
+            f"   Chunk: {result.chunk_content}",
         ]
         if obsidian:
             entry.append(f"   Obsidian URI: {build_obsidian_uri(dir_path, result.path)}")
@@ -224,13 +252,44 @@ async def handle_status(dir_path_str: str | None) -> list[TextContent]:
 
 
 async def handle_read(
-    doc_path: str,
     dir_path_str: str | None,
+    doc_path: str | None = None,
+    chunk_id: int | None = None,
+    before: int = 0,
+    after: int = 0,
     offset: int = 0,
     limit: int | None = None,
 ) -> list[TextContent]:
-    """Handle read tool calls."""
+    """Handle read tool calls (file path or chunk_id)."""
     dir_path = _get_dir_path(dir_path_str)
+
+    if chunk_id is not None:
+        try:
+            window = read_chunk_window(dir_path, chunk_id, before=before, after=after)
+        except IndexError as e:
+            return _error(str(e))
+        except Exception as e:
+            return _error(f"Read failed: {e}")
+
+        lines = [
+            f"Path: {window.path}",
+            f"Title: {window.title or '(untitled)'}",
+            f"focus_id: {window.focus_id}",
+            f"prev_id: {window.prev_id if window.prev_id is not None else 'null'}",
+            f"next_id: {window.next_id if window.next_id is not None else 'null'}",
+            "Note: prev_id/next_id are the only safe way to scroll; chunk_id values are opaque.",
+            "---",
+        ]
+        for piece in window.chunks:
+            marker = " [focus]" if piece.chunk_id == window.focus_id else ""
+            lines.append(f"### chunk_id={piece.chunk_id}{marker}")
+            lines.append(piece.content)
+            lines.append("")
+        return _text("\n".join(lines).rstrip() + "\n")
+
+    if not doc_path:
+        return _error("Provide path (file mode) or chunk_id (chunk mode).")
+
     full_path = dir_path / doc_path
 
     if not full_path.exists():
@@ -297,10 +356,13 @@ def create_server(dir_path: Path | None = None) -> Server:
             ),
             "muffin_status": lambda: handle_status(dir_path_arg),
             "muffin_read": lambda: handle_read(
-                arguments["path"],
                 dir_path_arg,
-                arguments.get("offset", 0),
-                arguments.get("limit"),
+                doc_path=arguments.get("path"),
+                chunk_id=arguments.get("chunk_id"),
+                before=arguments.get("before", 0),
+                after=arguments.get("after", 0),
+                offset=arguments.get("offset", 0),
+                limit=arguments.get("limit"),
             ),
         }
 
