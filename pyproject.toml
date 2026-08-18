@@ -1,6 +1,6 @@
 [project]
 name = "ragamuffin"
-version = "0.9.3"
+version = "0.9.4"
 description = "A CLI tool that indexes documents into SQLite with sqlite-vec for semantic search using local embeddings"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,7 +10,7 @@ dependencies = [
     "click",
     "pyyaml",
     "rich",
-    "mcp",
+    "mcp>=2,<3",
     "flask",
     "pygments",
 ]

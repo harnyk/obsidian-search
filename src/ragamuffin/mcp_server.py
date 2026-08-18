@@ -5,7 +5,7 @@ from pathlib import Path
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from .core import (
     DEFAULT_SEARCH_LIMIT,
@@ -279,33 +279,43 @@ def create_server(dir_path: Path | None = None) -> Server:
     tools_without_dir = _build_tool_schemas(with_dir_path=False, description=description)
     tools_with_dir = _build_tool_schemas(with_dir_path=True, description=description)
 
-    server = Server("ragamuffin")
+    async def on_list_tools(ctx, params) -> ListToolsResult:
+        tools = tools_without_dir if _default_dir_path else tools_with_dir
+        return ListToolsResult(tools=tools)
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return tools_without_dir if _default_dir_path else tools_with_dir
-
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    async def on_call_tool(ctx, params) -> CallToolResult:
+        name = params.name
+        arguments = params.arguments or {}
         dir_path_arg = arguments.get("dir_path")
 
         handlers = {
-            "muffin_index": lambda: handle_index(dir_path_arg, update_only=not arguments.get("force", False)),
+            "muffin_index": lambda: handle_index(
+                dir_path_arg, update_only=not arguments.get("force", False)
+            ),
             "muffin_search": lambda: handle_search(
                 arguments["query"], dir_path_arg, arguments.get("limit", DEFAULT_SEARCH_LIMIT)
             ),
             "muffin_status": lambda: handle_status(dir_path_arg),
             "muffin_read": lambda: handle_read(
-                arguments["path"], dir_path_arg, arguments.get("offset", 0), arguments.get("limit")
+                arguments["path"],
+                dir_path_arg,
+                arguments.get("offset", 0),
+                arguments.get("limit"),
             ),
         }
 
         handler = handlers.get(name)
         if handler:
-            return await handler()
-        return _error(f"Unknown tool: {name}")
+            content = await handler()
+        else:
+            content = _error(f"Unknown tool: {name}")
+        return CallToolResult(content=content)
 
-    return server
+    return Server(
+        "ragamuffin",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+    )
 
 
 async def run_server(dir_path: Path | None = None):
